@@ -3,7 +3,6 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::backend;
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -13,7 +12,7 @@ use ratatui::{
 };
 use std::io;
 use std::time::{Duration, Instant};
-use sysinfo::System;
+use sysinfo::{Product, System};
 
 fn main() -> Result<(), io::Error> {
     // 端末をTUIモードに切り替える
@@ -60,30 +59,29 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Resu
                 .constraints([
                     Constraint::Length(3),
                     Constraint::Length(3),
+                    Constraint::Min(8),
                     Constraint::Min(10),
                 ])
                 .split(size);
 
             // CPU情報
-            let num_of_cpus: usize = sys.cpus().len();
             let cpu_usage: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>();
             let all_cpu_usage: f32 = sys.cpus().len() as f32 * 100.0;
-            let brand: &str = sys.cpus().get(0).map_or("Unknown", |c| c.brand());
             let cpu_block = Paragraph::new(format!(
-                "CPU Usage: {:.1}% / {}%, Number of cores: {}, Brand: {}",
-                cpu_usage, all_cpu_usage, num_of_cpus, brand
+                "CPU Usage: {:.1}% / {}%",
+                cpu_usage, all_cpu_usage
             ))
             .block(Block::default().borders(Borders::ALL).title("CPU"))
             .style(Style::default().fg(Color::Yellow));
             f.render_widget(cpu_block, chunks[0]);
 
             // メモリ情報
-            sys.free_swap();
-            sys.total_swap();
-            sys.used_swap();
-            let total = sys.total_memory() / 1024 / 1024;
-            let used = (sys.used_memory()) / 1024 / 1024;
-            let mem_block = Paragraph::new(format!("Memory: {used} MB / {total} MB"))
+            let total_memory = sys.total_memory() / 1024 / 1024;
+            let used_memory = (sys.used_memory()) / 1024 / 1024;
+            // let free_swap = sys.free_swap();
+            let total_swap = sys.total_swap() / 1024 / 1024;
+            let used_swap = sys.used_swap() / 1024 / 1024;
+            let mem_block = Paragraph::new(format!("Memory: {used_memory} MB / {total_memory} MB, Swap: {used_swap} MB / {total_swap} MB"))
                 .block(Block::default().borders(Borders::ALL).title("Memory"))
                 .style(Style::default().fg(Color::Cyan));
             f.render_widget(mem_block, chunks[1]);
@@ -93,7 +91,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Resu
             processes.sort_by_key(|p| -(p.cpu_usage() as i32));
             let rows: Vec<Row> = processes
                 .iter()
-                .take(20)
+                .take(5)
                 .map(|p| {
                     Row::new(vec![
                         p.pid().to_string(),
@@ -103,7 +101,6 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Resu
                     ])
                 })
                 .collect();
-
             let table = Table::new(
                 rows,
                 [
@@ -119,6 +116,52 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Resu
             )
             .block(Block::default().borders(Borders::ALL).title("Processes"));
             f.render_widget(table, chunks[2]);
+
+
+            // システム情報
+            let mut info_rows: Vec<Row> = Vec::new();
+
+            let number_of_cpus = sys.cpus().len().to_string();
+            info_rows.push(Row::new(vec!["Number of cpus", number_of_cpus.as_str()]));
+
+            let cpu_arch = System::cpu_arch();
+            info_rows.push(Row::new(vec!["CPU Architecture", cpu_arch.as_str()]));
+
+            let brand: &str = sys.cpus().get(0).map_or("Unknown", |c| c.brand());
+            info_rows.push(Row::new(vec!["Brand", brand]));
+
+            let uptime = System::uptime().to_string();
+            info_rows.push(Row::new(vec!["Uptime", uptime.as_str()]));
+
+            let kernel_long_version = System::kernel_long_version();
+            info_rows.push(Row::new(vec!["kernel long version", kernel_long_version.as_str()]));
+
+            let long_os_version = System::long_os_version();
+            info_rows.push(Row::new(vec!["long os version", long_os_version.as_deref().unwrap_or("Unknown")]));
+
+            let host_name = System::host_name();
+            info_rows.push(Row::new(vec!["Host name", host_name.as_deref().unwrap_or("Unknown")]));
+
+            let open_files_limit = System::open_files_limit();
+            let open_files_limit_str = open_files_limit
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+            info_rows.push(Row::new(vec!["Open files limit", open_files_limit_str.as_str()]));
+
+            let product_name = Product::name();
+            info_rows.push(Row::new(vec!["Product Name", product_name.as_deref().unwrap_or("Unknown")]));
+            
+            let vendor_name = Product::vendor_name();
+            info_rows.push(Row::new(vec!["Vendor name", vendor_name.as_deref().unwrap_or("Unknown")]));
+
+            // info_rows.push(Row::new(vec![]));
+            // info_rows.push(Row::new(vec![]));
+
+            let info_table = Table::new(info_rows, [
+                Constraint::Length(25),
+                Constraint::Length(60),
+            ]).block(Block::default().borders(Borders::ALL).title("Info"));
+            f.render_widget(info_table, chunks[3]);
         })?;
 
         let timeout = tick_rate
